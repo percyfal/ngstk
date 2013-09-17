@@ -27,6 +27,8 @@ struct __angsd_io_t {
 	int chromo, position, major, minor, anc, knownEM, nInd;
 	// Total number of individuals 
 	int nind_tot;
+	// Line number
+	//int linenum;
 };
 
 
@@ -201,9 +203,15 @@ void angsd_close_file(angsd_io_t *angsd_io)
 	free (angsd_io);
 }
 
+/* void forward_to_next_pos(angsd_io_t *mafsA, angsd_io_t *mafsB, angsd_io_t *countsA, angsd_io_t *countsB)  */
+/* { */
+	
+/* } */
+
+
 int angsd(int argc, char *argv[])
 {
-	int c = -1, i;
+	int c = -1;
 	char popA[256], popB[256];
 	
 	while ((c = getopt(argc, argv, "A")) >= 0) {
@@ -250,34 +258,68 @@ int angsd(int argc, char *argv[])
 
 	// Read the files
 	size_t N=256;
-
+	int posA=-1, posB=-2;
 	char **resA, **resB;
 	while (1) {
-		int iA, iB, posA, posB;
+		int iA, iB;
 		char *s_mafsA, *s_mafsB, *s_countsA, *s_countsB;
-		s_mafsA = (char *) malloc (N);
-		s_mafsB = (char *) malloc (N);
-		s_countsA = (char *) malloc (N);
-		s_countsB = (char *) malloc (N);
-		iA = angsd_getline(&s_mafsA, &N, mafsA);
-		iB = angsd_getline(&s_mafsB, &N, mafsB);
-		resA = splitstr(s_mafsA);
-		resB = splitstr(s_mafsB);
-		posA = atoi(resA[mafsA->position]);
-		posB = atoi(resB[mafsB->position]);
-		fprintf(stderr, "saw position %i, %i\n", posA, posB);
+		if (posA != posB) {
+			while (posA != posB) {
+				s_mafsA = (char *) malloc (N);
+				s_mafsB = (char *) malloc (N);
+				s_countsA = (char *) malloc (N);
+				s_countsB = (char *) malloc (N);
+				if (posA < posB) {
+					fprintf(stderr, "position %i not in B\n", posA);
+					iA = angsd_getline(&s_mafsA, &N, mafsA);
+					if (iA<0) 
+						break;
+					resA = splitstr(s_mafsA);
+					posA = atoi(resA[mafsA->position]);
+				} else {
+					fprintf(stderr, "position %i not in A\n", posB);
+					iB = angsd_getline(&s_mafsB, &N, mafsB);
+					if (iB<0) 
+						break;
+					resB = splitstr(s_mafsB);
+					posB = atoi(resB[mafsB->position]);
+				}
+				free (s_mafsA);
+				free (s_mafsB);
+				free (s_countsA);
+				free (s_countsB);
+				if (iA<0 || iB<0) {
+					fprintf(stderr, "breaking at  position %i, %i\n", posA, posB);
+					break;
+				}
+			}
+		} else {
+				s_mafsA = (char *) malloc (N);
+				s_mafsB = (char *) malloc (N);
+				s_countsA = (char *) malloc (N);
+				s_countsB = (char *) malloc (N);
+				iA = angsd_getline(&s_mafsA, &N, mafsA);
+				iB = angsd_getline(&s_mafsB, &N, mafsB);
+				if (iA<0 || iB<0) {
+					fprintf(stderr, "breaking at  position %i, %i\n", posA, posB);
+					break;
+				}
+				resA = splitstr(s_mafsA);
+				posA = atoi(resA[mafsA->position]);
+				resB = splitstr(s_mafsB);
+				posB = atoi(resB[mafsB->position]);
+				free (s_mafsA);
+				free (s_mafsB);
+				free (s_countsA);
+				free (s_countsB);
+		}
+		if (posA % 10000 == 0)
+			fprintf(stderr, "saw position %i, %i\n", posA, posB);
 		
-		if (iA<0 || iB<0)
-			break;
-		free (s_mafsA);
-		free (s_mafsB);
-		free (s_countsA);
-		free (s_countsB);
 	}
-	
-	free(resA);
-	free(resB);
-	
+	/* free(resA); */
+	/* free(resB); */
+
 	// close files
 	angsd_close_file(mafsA);
 	angsd_close_file(mafsB);
