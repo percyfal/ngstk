@@ -14,11 +14,10 @@
 #include <string.h>
 #include <errno.h>
 #include <zlib.h>
+#include <math.h>
 #include "angsd.h"
 
-#define MIN_CHUNK 64
-#define BUFLEN 256
-#define LENGTH 0x1000
+
 
 struct __angsd_io_t {
 	angsdFile fp;
@@ -30,8 +29,7 @@ struct __angsd_io_t {
 	// Line number
 	//int linenum;
 };
-
-
+	
 angsd_io_t *angsd_open_file(const char *fn)
 {
 	angsd_io_t *angsd_io;
@@ -78,8 +76,6 @@ void angsd_set_counts_nind(angsd_io_t *counts)
 	my_string = (char *) malloc (N);
 	int i = angsd_getline(&my_string, &N, counts);
 	int nind ;
-	fprintf(stderr, "[angsd] [angsd_set_counts_nind]: saw header %s\n", my_string);
-	
 	char **header = splitstr(my_string);
 	if (header)
     {
@@ -179,7 +175,6 @@ ssize_t angsd_getline(char **line_ptr, size_t *N, angsd_io_t *angsd_io)
 	return ret;
 }
 
-
 char **splitstr(char *s)
 {
 	char **res = NULL;
@@ -203,21 +198,71 @@ void angsd_close_file(angsd_io_t *angsd_io)
 	free (angsd_io);
 }
 
-/* void forward_to_next_pos(angsd_io_t *mafsA, angsd_io_t *mafsB, angsd_io_t *countsA, angsd_io_t *countsB)  */
-/* { */
+
+mafs_t *set_mafs_results(angsd_io_t *mafs, angsd_io_t *counts)
+{
+	int i;
+	size_t N=256;
+	char **res;
+	char *input_str;
+	mafs_t *mafs_res;
+	input_str = (char *) malloc (N);
+
+	// Get line
+	i = angsd_getline(&input_str, &N, mafs);
+	if (i < 0)
+		return NULL;
+
+	// Split string
+	res = splitstr(input_str);
 	
-/* } */
+	// Set the results
+	mafs_res = (mafs_t *)calloc (1, sizeof (mafs_t));
+	mafs_res->coverage = (int *) malloc (counts->nind_tot * sizeof(int));
+	mafs_res->position = atoi(res[mafs->position]);
+	mafs_res->nInd = atoi(res[mafs->nInd]);
+	strcpy(mafs_res->chromo, res[mafs->chromo]);
+	strcpy(mafs_res->major, res[mafs->major]);
+	strcpy(mafs_res->minor, res[mafs->minor]);
+	strcpy(mafs_res->anc, res[mafs->anc]);
+	if (strcmp(mafs_res->anc, mafs_res->minor)==0)
+		mafs_res->allele_freq =  1.0 - atof(res[mafs->knownEM]);
+	else
+		mafs_res->allele_freq = atof(res[mafs->knownEM]);
+
+	// Get counts
+	i = angsd_getline(&input_str, &N, counts);
+	// Split string
+	res = splitstr(input_str);
+	int j;
+	for (j=0; j<counts->nind_tot; j++)
+		mafs_res->coverage[j] = atoi(res[j]);
+	free(input_str);
+	free(res);
+	
+	return mafs_res;
+}
 
 
 int angsd(int argc, char *argv[])
 {
 	int c = -1;
 	char popA[256], popB[256];
+
+	// Initialize options
+	opt_t *angsd_opt;
+	angsd_opt = (opt_t*)calloc(1, sizeof(opt_t));
+	angsd_opt->coverage=COVERAGE;
+	angsd_opt->in_fraction=IN_FRACTION;
+	angsd_opt->gridsize=GRIDSIZE;
 	
-	while ((c = getopt(argc, argv, "A")) >= 0) {
+	while ((c = getopt(argc, argv, "c:f:")) >= 0) {
 		switch (c) {
-		case 'A':
-			fprintf(stderr, "Saw option A\n");
+		case 'c':
+			angsd_opt->coverage = atoi(optarg);
+			break;
+		case 'f':
+			angsd_opt->in_fraction = atof(optarg);
 			break;
 		default: return 1;
 		}
@@ -231,6 +276,13 @@ int angsd(int argc, char *argv[])
 		return 1;
 	}
 
+	// setup frequency matrix
+	int freq[angsd_opt->gridsize][angsd_opt->gridsize];
+	int k,l;
+	for (k = 0; k < angsd_opt->gridsize; k++) 
+		for (l = 0; l < angsd_opt->gridsize; l++)
+			freq[k][l] = 0;
+	
 	// Start processing input
 	// open mafs files
 	angsd_io_t *mafsA, *mafsB, *countsA, *countsB;
@@ -257,73 +309,97 @@ int angsd(int argc, char *argv[])
 	angsd_set_counts_nind(countsB);
 
 	// Read the files
-	size_t N=256;
+	size_t N = 256;
 	int posA=-1, posB=-2;
-	char **resA, **resB;
 	while (1) {
-		int iA, iB;
-		char *s_mafsA, *s_mafsB, *s_countsA, *s_countsB;
+		mafs_t *mafs_resA, *mafs_resB;
 		if (posA != posB) {
 			while (posA != posB) {
-				s_mafsA = (char *) malloc (N);
-				s_mafsB = (char *) malloc (N);
-				s_countsA = (char *) malloc (N);
-				s_countsB = (char *) malloc (N);
 				if (posA < posB) {
 					fprintf(stderr, "position %i not in B\n", posA);
-					iA = angsd_getline(&s_mafsA, &N, mafsA);
-					if (iA<0) 
+					mafs_resA = set_mafs_results(mafsA, countsA);
+					if (mafs_resA == NULL)
 						break;
-					resA = splitstr(s_mafsA);
-					posA = atoi(resA[mafsA->position]);
+					posA = mafs_resA->position;
 				} else {
 					fprintf(stderr, "position %i not in A\n", posB);
-					iB = angsd_getline(&s_mafsB, &N, mafsB);
-					if (iB<0) 
+					mafs_resB = set_mafs_results(mafsB, countsB);
+					if (mafs_resB == NULL)
 						break;
-					resB = splitstr(s_mafsB);
-					posB = atoi(resB[mafsB->position]);
+					posB = mafs_resB->position;
 				}
-				free (s_mafsA);
-				free (s_mafsB);
-				free (s_countsA);
-				free (s_countsB);
-				if (iA<0 || iB<0) {
+				if (mafs_resA == NULL || mafs_resB == NULL) {
 					fprintf(stderr, "breaking at  position %i, %i\n", posA, posB);
 					break;
 				}
 			}
 		} else {
-				s_mafsA = (char *) malloc (N);
-				s_mafsB = (char *) malloc (N);
-				s_countsA = (char *) malloc (N);
-				s_countsB = (char *) malloc (N);
-				iA = angsd_getline(&s_mafsA, &N, mafsA);
-				iB = angsd_getline(&s_mafsB, &N, mafsB);
-				if (iA<0 || iB<0) {
-					fprintf(stderr, "breaking at  position %i, %i\n", posA, posB);
-					break;
-				}
-				resA = splitstr(s_mafsA);
-				posA = atoi(resA[mafsA->position]);
-				resB = splitstr(s_mafsB);
-				posB = atoi(resB[mafsB->position]);
-				free (s_mafsA);
-				free (s_mafsB);
-				free (s_countsA);
-				free (s_countsB);
+			mafs_resA = set_mafs_results(mafsA, countsA);
+			mafs_resB = set_mafs_results(mafsB, countsB);
+			if (mafs_resA == NULL || mafs_resB == NULL) {
+				fprintf(stderr, "breaking at  position %i, %i\n", posA, posB);
+				break;
+			}
+			posA = mafs_resA->position;
+			posB = mafs_resB->position;
 		}
-		if (posA % 10000 == 0)
+		if (posA % 10000 == 0) {
 			fprintf(stderr, "saw position %i, %i\n", posA, posB);
+			fprintf(stderr, "%s %i\n", mafs_resA->chromo, mafs_resA->position);
+		}
 		
+		// process results
+		int ncovA = 0, ncovB = 0, i;
+		for (i=0; i<countsA->nind_tot; i++)
+			if (mafs_resA->coverage[i] >= angsd_opt->coverage)
+				ncovA++;
+		for (i=0; i<countsB->nind_tot; i++)
+			if (mafs_resB->coverage[i] >= angsd_opt->coverage)
+				ncovB++;
+		// See if fraction ok for both
+		if (((1.0 *ncovA/countsA->nind_tot) >= angsd_opt->in_fraction) && ((1.0 * ncovB/countsB->nind_tot) >= angsd_opt->in_fraction)) {
+			int iA = floor(mafs_resA->allele_freq * (angsd_opt->gridsize - 1));
+			int iB = floor(mafs_resB->allele_freq * (angsd_opt->gridsize - 1));
+			if (iA >=100 || iB >= 100)
+				fprintf(stderr, "iA: %i, iB: %i\n", iA, iB);
+			
+			freq[iA][iB]++;
+		}
+		
+		if (mafs_resA && mafs_resB) {
+			if (mafs_resA->position < mafs_resB->position) {
+				// only free resA
+				fprintf(stderr, "saw mafs_resA @%x\n", &mafs_resA);
+				free((void *) mafs_resA->coverage);
+				free(mafs_resA);
+			}
+			else if (mafs_resB->position < mafs_resA->position) {
+				// only free resB
+				fprintf(stderr, "saw mafs_resB @%x\n", &mafs_resB);
+				free((void *) mafs_resB->coverage);
+				free(mafs_resB);
+			} else {
+				free((void *) mafs_resA->coverage);
+				free((void *) mafs_resB->coverage);
+				free(mafs_resA);
+				free(mafs_resB);
+			}
+		}
 	}
-	/* free(resA); */
-	/* free(resB); */
-
+	
 	// close files
 	angsd_close_file(mafsA);
 	angsd_close_file(mafsB);
 	angsd_close_file(countsA);
 	angsd_close_file(countsB);
+
+	// print freq matrixs
+	for (k=0; k<angsd_opt->gridsize; k++) {
+		for (l=0; l<angsd_opt->gridsize; l++)
+			fprintf(stdout, "%i ", freq[k][l]);
+		fprintf(stdout, "\n");
+	}
+	fprintf(stdout, "\n");
+	
 	return 0;
 }
