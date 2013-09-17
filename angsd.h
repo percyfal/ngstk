@@ -15,8 +15,8 @@
 #include <zlib.h>
 
 typedef gzFile angsdFile;
-struct __angsd_mafs_io_t;
-typedef struct __angsd_mafs_io_t angsd_mafs_io_t;
+struct __angsd_io_t;
+typedef struct __angsd_io_t angsd_io_t;
 
 #define angsd_open(fn, mode) gzopen(fn, mode)
 #define angsd_close(fp) gzclose(fp)
@@ -26,10 +26,12 @@ typedef struct __angsd_mafs_io_t angsd_mafs_io_t;
 extern "C" {
 #endif
 
-	char *readline(angsd_mafs_io_t *mafs) ;
-	char **splitstr(const char *s);
-	angsd_mafs_io_t *angsd_open_mafs(const char *fn);
-	void angsd_close_mafs(angsd_mafs_io_t *mafs);
+	ssize_t angsd_getline(char **line_ptr, size_t *N, angsd_io_t *angsd_io);
+	void angsd_set_mafs_header(angsd_io_t *mafs);
+	void angsd_set_counts_nind(angsd_io_t *counts);
+	char **splitstr(char *s);
+	angsd_io_t *angsd_open_file(const char *fn);
+	void angsd_close_file(angsd_io_t *mafs);
 
 #ifdef __cplusplus
 }

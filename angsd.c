@@ -9,57 +9,180 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
 #include <zlib.h>
 #include "angsd.h"
 
+#define MIN_CHUNK 64
 #define BUFLEN 256
 #define LENGTH 0x1000
 
-struct __angsd_mafs_io_t {
+struct __angsd_io_t {
 	angsdFile fp;
 	char buffer[2*BUFLEN];
+	// Columns of interest
+	int chromo, position, major, minor, anc, knownEM, nInd;
+	// Total number of individuals 
+	int nind_tot;
 };
 
-angsd_mafs_io_t *angsd_open_mafs(const char *fn)
+
+angsd_io_t *angsd_open_file(const char *fn)
 {
-	angsd_mafs_io_t * mafs;
-	mafs = (angsd_mafs_io_t*)calloc(1, sizeof(angsd_mafs_io_t));
-	mafs->fp = angsd_open(fn, "r");
-	return mafs;
+	angsd_io_t *angsd_io;
+	fprintf(stderr, "[angsd] [angsd_mafs_io_t]: opening file %s\n", fn);
+	angsd_io = (angsd_io_t*)calloc(1, sizeof(angsd_io_t));
+	angsd_io->fp = angsd_open(fn, "r");
+	return angsd_io;
 }
 
-char *readline(angsd_mafs_io_t *mafs) 
+void angsd_set_mafs_header(angsd_io_t *mafs) 
 {
-	char tmpbuffer[BUFLEN];
-	int bytes_read;
-	char *line;
-	if (strchr(mafs->buffer, '\n') == NULL) {
-		bytes_read = angsd_read(mafs->fp, tmpbuffer, BUFLEN - 1);
-		tmpbuffer[bytes_read] = '\0';
-		strcpy(mafs->buffer, strcat(mafs->buffer, tmpbuffer));
-	}
+	size_t N=256;
+	char *my_string;
+	my_string = (char *) malloc (N);
+	int i = angsd_getline(&my_string, &N, mafs);
+	char **header = splitstr(my_string);
+	if (header)
+    {
+        for (i = 0; *(header + i); i++)
+        {
+			if (strcmp(*(header+i), "chromo")==0)
+				mafs->chromo = i;
+			else if (strcmp(*(header+i), "position")==0)
+				mafs->position = i;
+			else if (strcmp(*(header+i), "major")==0)
+				mafs->major = i;
+			else if (strcmp(*(header+i), "minor")==0)
+				mafs->minor = i;
+			else if (strcmp(*(header+i), "anc")==0)
+				mafs->anc = i;
+			else if (strcmp(*(header+i), "knownEM")==0)
+				mafs->knownEM = i;
+			else if (strcmp(*(header+i), "nInd")==0)
+				mafs->nInd = i;
+        }
+        free(header);
+    }
+}
+
+void angsd_set_counts_nind(angsd_io_t *counts)
+{
+	size_t N=256;
+	char *my_string;
+	my_string = (char *) malloc (N);
+	int i = angsd_getline(&my_string, &N, counts);
+	int nind ;
+	fprintf(stderr, "[angsd] [angsd_set_counts_nind]: saw header %s\n", my_string);
 	
-	// StackOverflow: how to read line by line after text into a buffer
-	line = mafs->buffer;
-	char *eol = strchr(line, '\n');
+	char **header = splitstr(my_string);
+	if (header)
+    {
+        for (i = 0; *(header + i); i++)
+			nind = i + 1;
+        free(header);
+    }
+	counts->nind_tot = nind;
+	fprintf(stderr, "[angsd] [angsd_set_counts_nind]: saw %i individuals\n", nind);
+}
+
+// See http://www.opensource.apple.com/source/cvs_wrapped/cvs_wrapped-5/cvs_wrapped/lib/getline.c
+ssize_t angsd_getline(char **line_ptr, size_t *N, angsd_io_t *angsd_io)
+{
+	int nchars_avail, bytes_read;
+	char tmpbuffer[BUFLEN];
+	char *read_pos;
+	char *c;
+	int ret;
+	int i;
+	
+	if (!line_ptr || !N ) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (!*line_ptr) {
+		*N = MIN_CHUNK;
+		*line_ptr = malloc (*N);
+		if (!*line_ptr) {
+			errno = ENOMEM;
+			return -1;
+		}
+	}
+
+	// Do buffered input if no newline
+	if (strchr(angsd_io->buffer, '\n') == NULL) {
+		bytes_read = angsd_read(angsd_io->fp, tmpbuffer, BUFLEN - 1);
+		if (bytes_read > 0) 
+			strcpy(angsd_io->buffer, strcat(angsd_io->buffer, tmpbuffer));
+		else
+			return -1;
+	}
+
+	read_pos = *line_ptr;
+	nchars_avail = *N;
+	
+	// Find eol character
+	char *eol = strchr(angsd_io->buffer, '\n');
 	*eol = '\0';
-	fprintf(stderr, "line: '%s'\n", line);
+	
+	// Fill line_ptr with characters
+	for (i=0; i<strlen(angsd_io->buffer); i++) {
+		c = angsd_io->buffer[i];
+		
+		int save_errno;
+		save_errno = errno;
+		assert((*line_ptr + *N) == (read_pos + nchars_avail));
+		if (nchars_avail < 2)
+		{
+			if (*N > MIN_CHUNK)
+				*N *= 2;
+			else
+				*N += MIN_CHUNK;
+
+			nchars_avail = *N + *line_ptr - read_pos;
+			*line_ptr = realloc (*line_ptr, *N);
+			if (!*line_ptr)
+			{
+				errno = ENOMEM;
+				return -1;
+			}
+			read_pos = *N - nchars_avail + *line_ptr;
+			assert((*line_ptr + *N) == (read_pos + nchars_avail));
+		}
+		if (c == EOF)
+		{
+			/* Return partial line, if any.  */
+			if (read_pos == *line_ptr)
+				return -1;
+			else
+				break;
+		}
+
+		*read_pos++ = angsd_io->buffer[i];
+		nchars_avail--;
+		if (c == '\n')
+			/* Return the line.  */
+			break;
+	}
 	eol++;
 	if (eol != NULL) {
-		strcpy(mafs->buffer, eol);
+		strcpy(angsd_io->buffer, eol);
 	}
-	return line;
+
+	*read_pos = '\0';
+	ret = read_pos - (*line_ptr);
+	return ret;
 }
 
-char **splitstr(const char *s)
+
+char **splitstr(char *s)
 {
 	char **res = NULL;
 	char *p = strtok(s, "\t ");
-	fprintf(stderr, "p: '%s'\n", p);
-	int n_spaces = 0, i;
+	int n_spaces = 0;
 	while(p) {
 		res = realloc(res, sizeof (char *) * ++n_spaces);
 		if (res == NULL)
@@ -69,63 +192,20 @@ char **splitstr(const char *s)
 	}
 	res = realloc(res, sizeof (char *) * (n_spaces + 1));
 	res[n_spaces]=0;
-	for (i=0; i<(n_spaces + 1); ++i)
-		fprintf(stderr, "res[%d] = '%s'\n", i, res[i]);
 	return res;
 }
 
-
-void angsd_close_mafs(angsd_mafs_io_t *mafs)
+void angsd_close_file(angsd_io_t *angsd_io)
 {
-	angsd_close (mafs->fp);
-	free (mafs);
+	angsd_close (angsd_io->fp);
+	free (angsd_io);
 }
-
-
-/* mafs_header_t *mafs_header_read(mafsFile fp) */
-/* {  */
-	
-/* } */
-
-
-/* char *readline(gzFile *fp) */
-/* { */
-/* 	int i = 0; */
-/* 	char line[LENGTH]; */
-	
-/* 	while (1) { */
-/*         int err; */
-/* 		int bytes_read; */
-/* 		char *c; */
-/* 		unsigned char buf[LENGTH]; */
-/* 		char buffer[4]; */
-/* 		// bytes_read = gzread(fp, buf, LENGTH - 1); */
-/* 		bytes_read = gzread(fp, buffer, 4); */
-/* 		buffer[bytes_read] = '\0'; */
-/* 		size_t sl; */
-/* 		fprintf(stderr, "Got buffer: %s\n", buffer); */
-/* 		strcpy(line, buf); */
-/* 		// fprintf(stderr, "%i bytes read\n", bytes_read); */
-/*         if (bytes_read < LENGTH - 1) { */
-/*             if (gzeof (fp)) { */
-/*                 break; */
-/*             } */
-/*             else { */
-/*                 const char * error_string; */
-/*                 error_string = gzerror (fp, & err); */
-/*                 if (err) { */
-/*                     fprintf (stderr, "Error: %s.\n", error_string); */
-/*                     exit (EXIT_FAILURE); */
-/*                 } */
-/*             } */
-/*         } */
-/*  	}  */
-/*  	return line;  */
-/* }  */
 
 int angsd(int argc, char *argv[])
 {
-	int c = -1;
+	int c = -1, i;
+	char popA[256], popB[256];
+	
 	while ((c = getopt(argc, argv, "A")) >= 0) {
 		switch (c) {
 		case 'A':
@@ -134,32 +214,74 @@ int angsd(int argc, char *argv[])
 		default: return 1;
 		}
 	}
-	fprintf(stderr, "[angsd]: Parsed options; remaining %s\n", argv[0]);
-	fprintf(stderr, "[angsd]: optind: %i\n", optind);
-	fprintf(stderr, "[angsd]: argc: %i\n", argc);
 	
-	if (optind + 1 != argc) {
-		fprintf(stderr, "optind + 1 > argc: %i + 1 > %i\n", optind, argc);
-		fprintf(stderr, "\n");
-		fprintf(stderr, "Usage: ngstk angsd [options] <prefix>\n");
+	if (optind + 2 != argc) {
+		fprintf(stderr, "Usage: ngstk angsd [options] <prefix_populationA> <prefix_populationB>\n\n");
+		fprintf(stderr, "  options:\n");
+		fprintf(stderr, "    -n             Number of individuals that must have given coverage\n");
+		fprintf(stderr, "    -c             Minimum required read coverage\n");
 		return 1;
 	}
-	fprintf(stderr, "[angsd]: result prefix '%s'\n", argv[optind]);
-
 
 	// Start processing input
-
 	// open mafs files
-	angsd_mafs_io_t *mafs;
-	mafs = angsd_open_mafs(argv[optind]);
+	angsd_io_t *mafsA, *mafsB, *countsA, *countsB;
 
-	// Read a line
-	char *line = readline(mafs);
-	fprintf(stderr, "line: '%s'\n", line);	
-	//char **res = splitstr(line);
-	//free (res);
+	strcpy(popA, argv[optind]);
+	strcpy(popB, argv[optind+1]);
+	
+	fprintf(stderr, "population A %s\n", popA);
+	fprintf(stderr, "population B %s\n", popB);
+	
+	mafsA = angsd_open_file(strcat(popA, ".mafs.gz"));
+	mafsB = angsd_open_file(strcat(popB, ".mafs.gz"));
+
+	strcpy(popA, argv[optind]);
+	strcpy(popB, argv[optind+1]);
+
+	countsA = angsd_open_file(strcat(popA, ".counts.gz"));
+	countsB = angsd_open_file(strcat(popB, ".counts.gz"));
+	
+	// Set the header information
+	angsd_set_mafs_header(mafsA);
+	angsd_set_mafs_header(mafsB);
+	angsd_set_counts_nind(countsA);
+	angsd_set_counts_nind(countsB);
+
+	// Read the files
+	size_t N=256;
+
+	char **resA, **resB;
+	while (1) {
+		int iA, iB, posA, posB;
+		char *s_mafsA, *s_mafsB, *s_countsA, *s_countsB;
+		s_mafsA = (char *) malloc (N);
+		s_mafsB = (char *) malloc (N);
+		s_countsA = (char *) malloc (N);
+		s_countsB = (char *) malloc (N);
+		iA = angsd_getline(&s_mafsA, &N, mafsA);
+		iB = angsd_getline(&s_mafsB, &N, mafsB);
+		resA = splitstr(s_mafsA);
+		resB = splitstr(s_mafsB);
+		posA = atoi(resA[mafsA->position]);
+		posB = atoi(resB[mafsB->position]);
+		fprintf(stderr, "saw position %i, %i\n", posA, posB);
+		
+		if (iA<0 || iB<0)
+			break;
+		free (s_mafsA);
+		free (s_mafsB);
+		free (s_countsA);
+		free (s_countsB);
+	}
+	
+	free(resA);
+	free(resB);
 	
 	// close files
-	angsd_close_mafs(mafs);
+	angsd_close_file(mafsA);
+	angsd_close_file(mafsB);
+	angsd_close_file(countsA);
+	angsd_close_file(countsB);
 	return 0;
 }
