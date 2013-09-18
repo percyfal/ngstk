@@ -36,6 +36,15 @@ angsd_io_t *angsd_open_file(const char *fn)
 	fprintf(stderr, "[angsd] [angsd_mafs_io_t]: opening file %s\n", fn);
 	angsd_io = (angsd_io_t*)calloc(1, sizeof(angsd_io_t));
 	angsd_io->fp = angsd_open(fn, "r");
+	strcpy(angsd_io->buffer, "");
+	angsd_io->chromo = -1;
+	angsd_io->position = -1;
+	angsd_io->major = -1;
+	angsd_io->minor = -1;
+	angsd_io->anc = -1;
+	angsd_io->knownEM = -1;
+	angsd_io->nInd = -1;
+	angsd_io->nind_tot = -1;
 	return angsd_io;
 }
 
@@ -88,13 +97,13 @@ void angsd_set_counts_nind(angsd_io_t *counts)
 }
 
 // See http://www.opensource.apple.com/source/cvs_wrapped/cvs_wrapped-5/cvs_wrapped/lib/getline.c
-ssize_t angsd_getline(char **line_ptr, size_t *N, angsd_io_t *angsd_io)
+size_t angsd_getline(char **line_ptr, size_t *N, angsd_io_t *angsd_io)
 {
 	int nchars_avail, bytes_read;
 	char tmpbuffer[BUFLEN];
 	char *read_pos;
 	char *c;
-	int ret;
+	size_t ret;
 	int i;
 	
 	if (!line_ptr || !N ) {
@@ -113,12 +122,12 @@ ssize_t angsd_getline(char **line_ptr, size_t *N, angsd_io_t *angsd_io)
 	// Do buffered input if no newline
 	if (strchr(angsd_io->buffer, '\n') == NULL) {
 		bytes_read = angsd_read(angsd_io->fp, tmpbuffer, BUFLEN - 1);
-		if (bytes_read > 0) 
+		if (bytes_read > 0) {
 			strcpy(angsd_io->buffer, strcat(angsd_io->buffer, tmpbuffer));
+		}
 		else
 			return -1;
 	}
-
 	read_pos = *line_ptr;
 	nchars_avail = *N;
 	
@@ -229,7 +238,9 @@ mafs_t *set_mafs_results(angsd_io_t *mafs, angsd_io_t *counts)
 		mafs_res->allele_freq =  1.0 - atof(res[mafs->knownEM]);
 	else
 		mafs_res->allele_freq = atof(res[mafs->knownEM]);
+	free(input_str);
 
+	input_str = (char *) malloc (N);
 	// Get counts
 	i = angsd_getline(&input_str, &N, counts);
 	// Split string
@@ -239,7 +250,6 @@ mafs_t *set_mafs_results(angsd_io_t *mafs, angsd_io_t *counts)
 		mafs_res->coverage[j] = atoi(res[j]);
 	free(input_str);
 	free(res);
-	
 	return mafs_res;
 }
 
@@ -316,20 +326,20 @@ int angsd(int argc, char *argv[])
 		if (posA != posB) {
 			while (posA != posB) {
 				if (posA < posB) {
-					fprintf(stderr, "position %i not in B\n", posA);
+					fprintf(stderr, "posA<posB: position %i not in B\n", posA);
 					mafs_resA = set_mafs_results(mafsA, countsA);
 					if (mafs_resA == NULL)
 						break;
 					posA = mafs_resA->position;
 				} else {
-					fprintf(stderr, "position %i not in A\n", posB);
+					fprintf(stderr, "posB<posA: position %i not in A\n", posB);
 					mafs_resB = set_mafs_results(mafsB, countsB);
 					if (mafs_resB == NULL)
 						break;
 					posB = mafs_resB->position;
 				}
 				if (mafs_resA == NULL || mafs_resB == NULL) {
-					fprintf(stderr, "breaking at  position %i, %i\n", posA, posB);
+					fprintf(stderr, "[angsd] 1. no pointer: breaking at  position %i, %i\n", posA, posB);
 					break;
 				}
 			}
@@ -337,33 +347,34 @@ int angsd(int argc, char *argv[])
 			mafs_resA = set_mafs_results(mafsA, countsA);
 			mafs_resB = set_mafs_results(mafsB, countsB);
 			if (mafs_resA == NULL || mafs_resB == NULL) {
-				fprintf(stderr, "breaking at  position %i, %i\n", posA, posB);
+				fprintf(stderr, "[angsd] 2. no pointer: breaking at  position %i, %i\n", posA, posB);
 				break;
 			}
 			posA = mafs_resA->position;
 			posB = mafs_resB->position;
 		}
-		if (posA % 10000 == 0) {
+		if (posA % 1 == 10000) {
 			fprintf(stderr, "saw position %i, %i\n", posA, posB);
-			fprintf(stderr, "%s %i\n", mafs_resA->chromo, mafs_resA->position);
+			//fprintf(stderr, "%s %i\n", mafs_resA->chromo, mafs_resA->position);
 		}
 		
-		// process results
-		int ncovA = 0, ncovB = 0, i;
-		for (i=0; i<countsA->nind_tot; i++)
-			if (mafs_resA->coverage[i] >= angsd_opt->coverage)
-				ncovA++;
-		for (i=0; i<countsB->nind_tot; i++)
-			if (mafs_resB->coverage[i] >= angsd_opt->coverage)
-				ncovB++;
-		// See if fraction ok for both
-		if (((1.0 *ncovA/countsA->nind_tot) >= angsd_opt->in_fraction) && ((1.0 * ncovB/countsB->nind_tot) >= angsd_opt->in_fraction)) {
-			int iA = floor(mafs_resA->allele_freq * (angsd_opt->gridsize - 1));
-			int iB = floor(mafs_resB->allele_freq * (angsd_opt->gridsize - 1));
-			if (iA >=100 || iB >= 100)
-				fprintf(stderr, "iA: %i, iB: %i\n", iA, iB);
-			
-			freq[iA][iB]++;
+		// process results if data exists
+		if (mafs_resA && mafs_resB) {
+			int ncovA = 0, ncovB = 0, i;
+			for (i=0; i<countsA->nind_tot; i++)
+				if (mafs_resA->coverage[i] >= angsd_opt->coverage)
+					ncovA++;
+			for (i=0; i<countsB->nind_tot; i++)
+				if (mafs_resB->coverage[i] >= angsd_opt->coverage)
+					ncovB++;
+			// See if fraction ok for both
+			if (((1.0 *ncovA/countsA->nind_tot) >= angsd_opt->in_fraction) && ((1.0 * ncovB/countsB->nind_tot) >= angsd_opt->in_fraction)) {
+				int iA = floor(mafs_resA->allele_freq * (angsd_opt->gridsize - 1));
+				int iB = floor(mafs_resB->allele_freq * (angsd_opt->gridsize - 1));
+				if (iA >=100 || iB >= 100)
+					fprintf(stderr, "iA: %i, iB: %i\n", iA, iB);
+				freq[iA][iB]++;
+			}
 		}
 		
 		if (mafs_resA && mafs_resB) {

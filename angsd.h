@@ -51,7 +51,7 @@ typedef struct __angsd_io_t angsd_io_t;
 extern "C" {
 #endif
 
-	ssize_t angsd_getline(char **line_ptr, size_t *N, angsd_io_t *angsd_io);
+	size_t angsd_getline(char **line_ptr, size_t *N, angsd_io_t *angsd_io);
 	void angsd_set_mafs_header(angsd_io_t *mafs);
 	void angsd_set_counts_nind(angsd_io_t *counts);
 	char **splitstr(char *s);
