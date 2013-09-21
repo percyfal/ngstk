@@ -360,33 +360,34 @@ int angsd(int argc, char *argv[])
 		
 		// process results if data exists
 		if (mafs_resA && mafs_resB) {
-			int ncovA = 0, ncovB = 0, i;
-			for (i=0; i<countsA->nind_tot; i++)
-				if (mafs_resA->coverage[i] >= angsd_opt->coverage)
-					ncovA++;
-			for (i=0; i<countsB->nind_tot; i++)
-				if (mafs_resB->coverage[i] >= angsd_opt->coverage)
-					ncovB++;
-			// See if fraction ok for both
-			if (((1.0 *ncovA/countsA->nind_tot) >= angsd_opt->in_fraction) && ((1.0 * ncovB/countsB->nind_tot) >= angsd_opt->in_fraction)) {
-				int iA = floor(mafs_resA->allele_freq * (angsd_opt->gridsize - 1));
-				int iB = floor(mafs_resB->allele_freq * (angsd_opt->gridsize - 1));
-				if (iA >=100 || iB >= 100)
-					fprintf(stderr, "iA: %i, iB: %i\n", iA, iB);
-				freq[iA][iB]++;
+			
+			if (strcmp(mafs_resA->anc, "N")!=0 && strcmp(mafs_resB->anc, "N") != 0) {
+				int ncovA = 0, ncovB = 0, i;
+				for (i=0; i<countsA->nind_tot; i++)
+					if (mafs_resA->coverage[i] >= angsd_opt->coverage)
+						ncovA++;
+				for (i=0; i<countsB->nind_tot; i++)
+					if (mafs_resB->coverage[i] >= angsd_opt->coverage)
+						ncovB++;
+				// See if fraction ok for both
+				if (((1.0 *ncovA/countsA->nind_tot) >= angsd_opt->in_fraction) && ((1.0 * ncovB/countsB->nind_tot) >= angsd_opt->in_fraction)) {
+					int iA = floor(mafs_resA->allele_freq * (angsd_opt->gridsize - 1));
+					int iB = floor(mafs_resB->allele_freq * (angsd_opt->gridsize - 1));
+					if (iA >=100 || iB >= 100)
+						fprintf(stderr, "iA: %i, iB: %i\n", iA, iB);
+					freq[iA][iB]++;
+				}
 			}
 		}
 		
 		if (mafs_resA && mafs_resB) {
 			if (mafs_resA->position < mafs_resB->position) {
 				// only free resA
-				fprintf(stderr, "saw mafs_resA @%x\n", &mafs_resA);
 				free((void *) mafs_resA->coverage);
 				free(mafs_resA);
 			}
 			else if (mafs_resB->position < mafs_resA->position) {
 				// only free resB
-				fprintf(stderr, "saw mafs_resB @%x\n", &mafs_resB);
 				free((void *) mafs_resB->coverage);
 				free(mafs_resB);
 			} else {
