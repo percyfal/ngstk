@@ -234,10 +234,8 @@ mafs_t *set_mafs_results(angsd_io_t *mafs, angsd_io_t *counts)
 	strcpy(mafs_res->major, res[mafs->major]);
 	strcpy(mafs_res->minor, res[mafs->minor]);
 	strcpy(mafs_res->anc, res[mafs->anc]);
-	if (strcmp(mafs_res->anc, mafs_res->minor)==0)
-		mafs_res->allele_freq =  1.0 - atof(res[mafs->knownEM]);
-	else
-		mafs_res->allele_freq = atof(res[mafs->knownEM]);
+	// Use -doMajorMinor 5 where major is ancestral 
+	mafs_res->allele_freq = atof(res[mafs->knownEM]);
 	free(input_str);
 
 	input_str = (char *) malloc (N);
