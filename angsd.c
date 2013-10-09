@@ -36,6 +36,10 @@ angsd_io_t *angsd_open_file(const char *fn)
 	fprintf(stderr, "[angsd] [angsd_mafs_io_t]: opening file %s\n", fn);
 	angsd_io = (angsd_io_t*)calloc(1, sizeof(angsd_io_t));
 	angsd_io->fp = angsd_open(fn, "r");
+	if (! angsd_io->fp) {
+        fprintf (stderr, "angsd_open of '%s' failed: %s.\n", fn, strerror (errno));
+            exit (EXIT_FAILURE);
+    }
 	strcpy(angsd_io->buffer, "");
 	angsd_io->chromo = -1;
 	angsd_io->position = -1;
@@ -317,7 +321,6 @@ int angsd(int argc, char *argv[])
 	angsd_set_counts_nind(countsB);
 
 	// Read the files
-	size_t N = 256;
 	int posA=-1, posB=-2;
 	while (1) {
 		mafs_t *mafs_resA, *mafs_resB;
