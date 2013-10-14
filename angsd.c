@@ -38,7 +38,7 @@ angsd_io_t *angsd_open_file(const char *fn)
 	angsd_io->fp = angsd_open(fn, "r");
 	if (! angsd_io->fp) {
         fprintf (stderr, "angsd_open of '%s' failed: %s.\n", fn, strerror (errno));
-            exit (EXIT_FAILURE);
+		exit (EXIT_FAILURE);
     }
 	strcpy(angsd_io->buffer, "");
 	angsd_io->chromo = -1;
