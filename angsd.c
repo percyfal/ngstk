@@ -238,8 +238,12 @@ mafs_t *set_mafs_results(angsd_io_t *mafs, angsd_io_t *counts)
 	strcpy(mafs_res->major, res[mafs->major]);
 	strcpy(mafs_res->minor, res[mafs->minor]);
 	strcpy(mafs_res->anc, res[mafs->anc]);
-	// Use -doMajorMinor 5 where major is ancestral 
+	// Use -doMajorMinor 5 where major is ancestral
+	if (atof(res[mafs->knownEM]) > 0.6) 
+		fprintf(stderr, "Freq>0.6: %.4f\n", atof(res[mafs->knownEM]));
 	mafs_res->allele_freq = atof(res[mafs->knownEM]);
+	if (atof(res[mafs->knownEM]) > 0.6) 
+		fprintf(stderr, "Freq>0.6: %.4f\n", mafs->allele_freq);
 	free(input_str);
 
 	input_str = (char *) malloc (N);
@@ -361,7 +365,6 @@ int angsd(int argc, char *argv[])
 		
 		// process results if data exists
 		if (mafs_resA && mafs_resB) {
-			
 			if (strcmp(mafs_resA->anc, "N")!=0 && strcmp(mafs_resB->anc, "N") != 0) {
 				int ncovA = 0, ncovB = 0, i;
 				for (i=0; i<countsA->nind_tot; i++)
@@ -374,8 +377,10 @@ int angsd(int argc, char *argv[])
 				if (((1.0 *ncovA/countsA->nind_tot) >= angsd_opt->in_fraction) && ((1.0 * ncovB/countsB->nind_tot) >= angsd_opt->in_fraction)) {
 					int iA = floor(mafs_resA->allele_freq * (angsd_opt->gridsize - 1));
 					int iB = floor(mafs_resB->allele_freq * (angsd_opt->gridsize - 1));
-					if (iA >=100 || iB >= 100)
+					if (iA >=GRIDSIZE || iB >= GRIDSIZE)
 						fprintf(stderr, "iA: %i, iB: %i\n", iA, iB);
+					if (mafs_resA->allele_freq >=0.2)
+						fprintf(stderr, "A->allele_freq: %.2f, B->allele_freq: %.2f, iA: %i, iB: %i\n", mafs_resA->allele_freq, mafs_resB->allele_freq, iA, iB);
 					freq[iA][iB]++;
 				}
 			}
