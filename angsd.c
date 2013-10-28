@@ -239,11 +239,7 @@ mafs_t *set_mafs_results(angsd_io_t *mafs, angsd_io_t *counts)
 	strcpy(mafs_res->minor, res[mafs->minor]);
 	strcpy(mafs_res->anc, res[mafs->anc]);
 	// Use -doMajorMinor 5 where major is ancestral
-	if (atof(res[mafs->knownEM]) > 0.6) 
-		fprintf(stderr, "Freq>0.6: %.4f\n", atof(res[mafs->knownEM]));
 	mafs_res->allele_freq = atof(res[mafs->knownEM]);
-	if (atof(res[mafs->knownEM]) > 0.6) 
-		fprintf(stderr, "Freq>0.6: %.4f\n", mafs->allele_freq);
 	free(input_str);
 
 	input_str = (char *) malloc (N);
@@ -272,13 +268,16 @@ int angsd(int argc, char *argv[])
 	angsd_opt->in_fraction=IN_FRACTION;
 	angsd_opt->gridsize=GRIDSIZE;
 	
-	while ((c = getopt(argc, argv, "c:f:")) >= 0) {
+	while ((c = getopt(argc, argv, "c:f:n:")) >= 0) {
 		switch (c) {
 		case 'c':
 			angsd_opt->coverage = atoi(optarg);
 			break;
 		case 'f':
 			angsd_opt->in_fraction = atof(optarg);
+			break;
+		case 'n':
+			angsd_opt->in_fraction = atoi(optarg);
 			break;
 		default: return 1;
 		}
@@ -288,6 +287,7 @@ int angsd(int argc, char *argv[])
 		fprintf(stderr, "Usage: ngstk angsd [options] <prefix_populationA> <prefix_populationB>\n\n");
 		fprintf(stderr, "  options:\n");
 		fprintf(stderr, "    -n             Number of individuals that must have given coverage\n");
+		fprintf(stderr, "    -f             Fraction of individuals that must have given coverage\n");
 		fprintf(stderr, "    -c             Minimum required read coverage\n");
 		return 1;
 	}
@@ -379,8 +379,6 @@ int angsd(int argc, char *argv[])
 					int iB = floor(mafs_resB->allele_freq * (angsd_opt->gridsize - 1));
 					if (iA >=GRIDSIZE || iB >= GRIDSIZE)
 						fprintf(stderr, "iA: %i, iB: %i\n", iA, iB);
-					if (mafs_resA->allele_freq >=0.2)
-						fprintf(stderr, "A->allele_freq: %.2f, B->allele_freq: %.2f, iA: %i, iB: %i\n", mafs_resA->allele_freq, mafs_resB->allele_freq, iA, iB);
 					freq[iA][iB]++;
 				}
 			}
