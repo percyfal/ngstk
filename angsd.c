@@ -127,14 +127,14 @@ size_t angsd_getline(char **line_ptr, size_t *N, angsd_io_t *angsd_io)
 	if (strchr(angsd_io->buffer, '\n') == NULL) {
 		bytes_read = angsd_read(angsd_io->fp, tmpbuffer, BUFLEN - 1);
 		if (bytes_read > 0) {
-			strcpy(angsd_io->buffer, strcat(angsd_io->buffer, tmpbuffer));
+		  strcat(angsd_io->buffer, tmpbuffer);
 		}
 		else
-			return -1;
+		  return -1;
 	}
 	read_pos = *line_ptr;
 	nchars_avail = *N;
-	
+
 	// Find eol character
 	char *eol = strchr(angsd_io->buffer, '\n');
 	*eol = '\0';
